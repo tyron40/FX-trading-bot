@@ -110,7 +110,7 @@ If any of the stop thresholds have been crossed, or if the user terminates the s
 
 ## How to Setup FXBot
 
-You can start off by cloning the repo by running `git clone --recurse-submodules -j8 https://github.com/trentstauff/FXBot`
+You can start off by cloning the repo by running `git clone --recurse-submodules -j8 https://github.com/tyron40/FX-trading-bot.git`
 
 ### Requirements
 

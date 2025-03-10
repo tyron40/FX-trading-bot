@@ -1,20 +1,19 @@
 import os
 import shutil
 from datetime import datetime, timedelta
-from livetrading.FemtoTrader import FemtoTrader
+from livetrading.MiniSmartTrader import MiniSmartTrader
 from livetrading.BollingerBandsLive import BollingerBandsLive
 from livetrading.ContrarianLive import ContrarianLive
 from livetrading.MLClassificationLive import MLClassificationLive
 from livetrading.MomentumLive import MomentumLive
 from livetrading.SMALive import SMALive
-from helpers.enhanced_market_analyzer import EnhancedMarketAnalyzer
 
 def main():
+    # Ensure config directory exists
+    if not os.path.exists('config'):
+        os.makedirs('config')
+    
     try:
-        # Ensure config directory exists
-        if not os.path.exists('config'):
-            os.makedirs('config')
-        
         # Get account type
         print("\nChoose account type:")
         print("1: Practice Account (recommended for testing)")
@@ -60,10 +59,10 @@ def main():
         mode = input("\nEnter choice (1 or 2): ").strip()
         
         if mode == "1":
-            # Auto trading mode
+            # Auto trading mode with smart features
             if account_type == "live":
                 print("\nStarting Smart Auto Trader with safe settings for $4 account...")
-                trader = FemtoTrader(
+                trader = MiniSmartTrader(
                     cfg="oanda.cfg",
                     risk_per_trade=0.05,    # Risk 5% ($0.20) per trade
                     stop_loss_pct=0.25,     # Stop loss at 0.25%
@@ -71,7 +70,7 @@ def main():
                 )
             else:
                 print("\nStarting Smart Auto Trader with practice settings...")
-                trader = FemtoTrader(
+                trader = MiniSmartTrader(
                     cfg="oanda.cfg",
                     risk_per_trade=0.10,    # Risk 10% per trade
                     stop_loss_pct=0.5,      # Stop loss at 0.5%
@@ -83,7 +82,6 @@ def main():
             # Manual trading mode
             from tpqoa import tpqoa
             oanda = tpqoa("oanda.cfg")
-            market_analyzer = EnhancedMarketAnalyzer()
             
             # Get available instruments
             print("\nEnter an instrument to trade (index or pair name):")
@@ -107,15 +105,6 @@ def main():
 
             instrument = choice
             print(f"\nSelected instrument: {instrument}")
-
-            # Get market sentiment
-            sentiment = market_analyzer.get_market_sentiment(instrument)
-            if sentiment:
-                print("\nCurrent Market Analysis:")
-                print(f"Sentiment Score: {sentiment['sentiment_score']:.2f}")
-                print(f"Recent News ({sentiment['news_count']} articles):")
-                for item in sentiment['news_items'][:3]:
-                    print(f"- {item['title']} ({item['source']})")
 
             # Choose trading mode
             print("\nChoose trading mode:")
@@ -146,12 +135,6 @@ def main():
 
             print("\nEnter granularity (e.g., \"1hr\", \"1m\", \"30s\"):")
             granularity = input()
-
-            if account_type == "live":
-                print("\nRecommended safe settings for $4 account:")
-                print("- Units: 100 (about $1 per trade)")
-                print("- Stop loss: -$0.25")
-                print("- Take profit: +$0.50")
 
             print("\nEnter number of units to trade:")
             units = int(input())
@@ -263,7 +246,6 @@ def main():
         print("\nInput stream closed.")
     except Exception as e:
         print(f"\nError occurred: {str(e)}")
-        print("Please try again.")
 
 if __name__ == "__main__":
     main()

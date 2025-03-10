@@ -1,5 +1,5 @@
 import numpy as np
-
+from helpers.market_analyzer import MarketAnalyzer
 from livetrading.LiveTrader import LiveTrader
 
 
@@ -33,7 +33,8 @@ class SMALive(LiveTrader):
         self._smas = smas
         self._smal = smal
 
-        # passes params to the parent class
+        self._position = 0  # Initialize position
+        self._market_analyzer = MarketAnalyzer()  # Initialize market analyzer
         super().__init__(
             cfg,
             instrument,
@@ -48,6 +49,36 @@ class SMALive(LiveTrader):
         data = self._raw_data.copy()
         data["smas"] = data["mid_price"].rolling(self._smas).mean()
         data["smal"] = data["mid_price"].rolling(self._smal).mean()
-        data["position"] = np.where(data["smas"] > data["smal"], 1, -1)
+        # Calculate additional indicators for more accuracy
+        data["momentum"] = data["mid_price"].diff(3).fillna(0)  # Short-term momentum
+        data["volatility"] = data["mid_price"].rolling(5).std()  # Short-term volatility
+        
+        # Calculate trend strength
+        data["trend_strength"] = abs(data["smas"] - data["smal"]) / data["volatility"]
+        
+        # Get base technical signal
+        technical_signal = np.where(
+            # Strong uptrend conditions
+            (data["smas"] > data["smal"]) &  # Short MA above Long MA
+            (data["mid_price"] > data["smal"]) &  # Price above Long MA
+            (data["momentum"] > 0) &  # Positive momentum
+            (data["trend_strength"] > 1.0),  # Strong trend
+            1,  # Go long
+            np.where(
+                # Strong downtrend conditions
+                (data["smas"] < data["smal"]) &  # Short MA below Long MA
+                (data["mid_price"] < data["smal"]) &  # Price below Long MA
+                (data["momentum"] < 0) &  # Negative momentum
+                (data["trend_strength"] > 1.0),  # Strong trend
+                -1,  # Go short
+                0  # Stay neutral
+            )
+        )
 
+        # Combine technical signal with market sentiment
+        data["position"] = self._market_analyzer.get_trading_signal(
+            self._instrument,
+            technical_signal
+        )
+        
         self._data = data.dropna().copy()

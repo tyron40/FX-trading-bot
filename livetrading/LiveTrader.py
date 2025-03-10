@@ -3,13 +3,13 @@ from datetime import datetime, timedelta
 
 import pytz
 
-import tpqoa
+from tpqoa import tpqoa
 import matplotlib.pyplot as plt
 
-plt.style.use("seaborn")
+plt.style.use("seaborn-v0_8")
 
 
-class LiveTrader(tpqoa.tpqoa):
+class LiveTrader(tpqoa):
     def __init__(
         self,
         cfg,
@@ -73,9 +73,7 @@ class LiveTrader(tpqoa.tpqoa):
 
         # set up history used by some trades
         self.setup_history(history_days)
-
         self.stream_data(self._instrument)
-
     def __del__(self):
         """Destructor used to ensure closing of position when object expires."""
         # close out position
@@ -92,19 +90,28 @@ class LiveTrader(tpqoa.tpqoa):
                 now = now.replace(microsecond=0)
                 past = now - timedelta(days=days)
 
+                # Convert granularity to OANDA format
+                if self._bar_length == pd.Timedelta('1 hour'):
+                    gran = "H1"
+                elif self._bar_length == pd.Timedelta('1 minute'):
+                    gran = "M1"
+                elif self._bar_length == pd.Timedelta('30 seconds'):
+                    gran = "S30"
+                else:
+                    gran = "S5"  # default
+                
                 mid_price = (
                     self.get_history(
                         instrument=self._instrument,
                         start=past,
                         end=now,
-                        granularity="S5",
+                        granularity=gran,
                         price="M",
                         localize=False,
                     )
                     .c.dropna()
                     .to_frame()
                 )
-
                 df = mid_price
                 df.rename(columns={"c": "mid_price"}, inplace=True)
 
@@ -178,18 +185,19 @@ class LiveTrader(tpqoa.tpqoa):
                 },
                 index=[recent_tick],
             )
-            self._tick_data = self._tick_data.append(df)
+            self._tick_data = pd.concat([self._tick_data, df])
             # resamples the tick data (if applicable), while also dropping
             # the last row (as it can be far off the resampled granularity)
             if (recent_tick - self._last_tick) >= self._bar_length:
 
                 # append the most recent resampled ticks to self._data
-                self._raw_data = self._raw_data.append(
+                self._raw_data = pd.concat([
+                    self._raw_data,
                     self._tick_data.resample(self._bar_length, label="right")
                     .last()
                     .ffill()
                     .iloc[:-1]
-                )
+                ])
 
                 # only keep the last tick bar (which is a pandas DataFrame)
                 self._tick_data = self._tick_data.iloc[-1:]

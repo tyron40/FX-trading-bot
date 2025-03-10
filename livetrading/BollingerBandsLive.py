@@ -30,8 +30,8 @@ class BollingerBandsLive(LiveTrader):
             stop_loss (float) <DEFAULT = None>: A stop loss that when profit goes below stops trading
             stop_profit (float) <DEFAULT = None>: A stop profit that when profit goes above stops trading
         """
-        self._sma = sma
-        self._deviation = deviation
+        self._sma = 5  # Set to 5 for more frequent signals
+        self._deviation = 1.5  # Set to 1.5 for tighter bands
 
         # passes params to the parent class
         super().__init__(
@@ -56,15 +56,26 @@ class BollingerBandsLive(LiveTrader):
         )
         data["distance"] = data["mid_price"] - data["sma"]
 
-        # if price is lower than lower band, indicates oversold, and to go long
-        data["position"] = np.where(data["mid_price"] < data["lower"], 1, np.nan)
-        # if price is higher than upper band, indicates overbought, and to go short
+        # Go long when price touches lower band (more aggressive entry)
         data["position"] = np.where(
-            data["mid_price"] > data["upper"], -1, data["position"]
+            data["mid_price"] <= data["lower"],
+            1,
+            np.nan
         )
-        # if we have crossed the sma line, we want to close our current position (be neutral, position=0)
+        
+        # Go short when price touches upper band
         data["position"] = np.where(
-            data["distance"] * data["distance"].shift(1) < 0, 0, data["position"]
+            data["mid_price"] >= data["upper"],
+            -1,
+            data["position"]
+        )
+        
+        # Close position when price crosses the middle band (SMA)
+        data["position"] = np.where(
+            (data["mid_price"] > data["sma"]) & (data["position"] == 1) |  # Close long positions
+            (data["mid_price"] < data["sma"]) & (data["position"] == -1),  # Close short positions
+            0,
+            data["position"]
         )
         # clean up any NAN values/holiday vacancies
         data["position"] = data.position.ffill().fillna(0)
