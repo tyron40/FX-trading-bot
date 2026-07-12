@@ -11,9 +11,16 @@
 - [x] Run API connectivity test
 - [x] Launch final interface (direct: UltimateTradingInterface.py)
 
-- [ ] Pro Upgrade Pack: add risk guardrails (daily loss kill-switch, max drawdown stop, spread filter)
-- [ ] Pro Upgrade Pack: add multi-source signal scoring (technical + volatility + session + optional RSS sentiment)
-- [ ] Pro Upgrade Pack: add walk-forward validation utility
-- [ ] Pro Upgrade Pack: expose controls/metrics in GUI for new guardrails
-- [ ] Thorough testing: GUI controls and live update flows
-- [ ] Thorough testing: strategy/backtest validation and guardrail behavior
+- [ ] Phase 1: Closed-candle-only data flow (preserve and use OANDA candle complete flag)
+- [ ] Phase 1: Add spread + rollover/session entry filters
+- [ ] Phase 1: Add regime gate (TRENDING/RANGING/UNCERTAIN) and block uncertain
+- [ ] Phase 1: Replace naive sizing with NAV + stop-based monetary risk sizing
+- [ ] Phase 1: Add explicit rejection logging (spread/session/regime/risk/margin)
+- [ ] Phase 1: Validate via py_compile + smoke run
+
+- [ ] Phase 2: Broker reconciliation (positions/trades/orders sync)
+- [ ] Phase 2: Broker-side stop amendment/replacement
+- [ ] Phase 2: Correlation exposure and currency-bucket limits
+- [ ] Phase 2: Daily/weekly drawdown kill-switches
+- [ ] Phase 2: Expectancy/profit-factor/drawdown metrics panel
+- [ ] Phase 2: Walk-forward-ready exports and testing harness
