@@ -16,6 +16,7 @@ import csv
 import os
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, time as dt_time
 
 import pandas as pd
@@ -44,6 +45,27 @@ DECISION_FIELDS = [
     "spread_pips", "entry", "stop_loss", "take_profit", "units",
     "margin_available", "mode", "score"
 ]
+
+
+@dataclass
+class OrderProposal:
+    instrument: str
+    side: str
+    entry: float
+    stop_loss: float
+    take_profit: float
+    units: int
+    risk_amount: float
+    estimated_loss: float
+    required_margin: float
+    spread_pips: float
+    regime: str
+
+
+@dataclass
+class ValidationResult:
+    allowed: bool
+    reason: str
 
 
 class EliteTrader(tpqoa):

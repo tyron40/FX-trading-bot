@@ -10,10 +10,10 @@
 - [x] Verify OANDA config presence/format
 - [x] Run API connectivity test
 - [x] Launch final interface (run_ultimate_interface.py)
-- [ ] Elite Phase 1: centralized validate_entry() gate
-- [ ] Elite Phase 1: spread + rollover/session hard filters
-- [ ] Elite Phase 1: enforce regime block behavior
-- [ ] Elite Phase 1: NAV/stop-based sizing + margin/invalid-order guards
-- [ ] Elite Phase 1: UI + CSV persistent rejection logging
-- [ ] Elite Phase 1: offline --smoke-test mode
-- [ ] Elite Phase 1: compile check + smoke test + practice-account validation
+- [ ] Phase-1 hardening: universal instrument metadata model
+- [ ] Phase-1 hardening: conversion engine (direct/inverse/triangular)
+- [ ] Phase-1 hardening: conversion-aware risk sizing + tolerance
+- [ ] Phase-1 hardening: real margin guard with margin_rate
+- [ ] Phase-1 hardening: proposal-based validation pipeline wired to execution
+- [ ] Minimal sanity: compile + smoke test
+- [ ] Commit and push to main
