@@ -32,7 +32,7 @@ class EnhancedMarketAnalyzer:
         try:
             # 1. MarketPulse News
             try:
-                response = requests.get(self.news_sources['marketpulse'], timeout=10)
+                response = requests.get(self.news_sources['marketpulse'], timeout=30)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     for article in soup.find_all('article', class_='post'):
@@ -42,7 +42,7 @@ class EnhancedMarketAnalyzer:
 
             # 2. OANDA News
             try:
-                response = requests.get(self.news_sources['oanda_news'], timeout=10)
+                response = requests.get(self.news_sources['oanda_news'], timeout=30)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     for article in soup.find_all('article'):
@@ -52,7 +52,7 @@ class EnhancedMarketAnalyzer:
 
             # 3. ForexLive
             try:
-                response = requests.get(self.news_sources['forexlive'], timeout=10)
+                response = requests.get(self.news_sources['forexlive'], timeout=30)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     for article in soup.find_all('article'):
@@ -63,7 +63,7 @@ class EnhancedMarketAnalyzer:
             # 4. FXStreet Technical Analysis
             try:
                 pair = currency_pair.replace('_', '')
-                response = requests.get(f"{self.news_sources['fxstreet']}/{pair.lower()}", timeout=10)
+                response = requests.get(f"{self.news_sources['fxstreet']}/{pair.lower()}", timeout=30)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     technical_signals.extend(self._parse_technical_signals(soup))
@@ -86,7 +86,6 @@ class EnhancedMarketAnalyzer:
                 'news_items': relevant_news[:5],  # Latest 5 news items
                 'technical_analysis': technical_signals[:3]  # Top 3 technical signals
             }
-
             # Update cache
             self.sentiment_cache[currency_pair] = sentiment_data
             return sentiment_data

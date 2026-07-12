@@ -29,24 +29,24 @@ class MarketAnalyzer:
             
             # Collect news from MarketPulse
             try:
-                response = requests.get(self.urls['marketpulse'], timeout=10)
+                response = requests.get(self.urls['marketpulse'], timeout=30)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     for article in soup.find_all('article', class_='post'):
                         news_items.append(self._parse_marketpulse_article(article))
             except Exception as e:
                 print(f"Error fetching MarketPulse news: {str(e)}")
-
+        
             # Collect news from OANDA
             try:
-                response = requests.get(self.urls['oanda_news'], timeout=10)
+                response = requests.get(self.urls['oanda_news'], timeout=30)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     for article in soup.find_all('article'):
                         news_items.append(self._parse_oanda_article(article))
             except Exception as e:
                 print(f"Error fetching OANDA news: {str(e)}")
-
+        
             # Filter news for currency pair
             currencies = currency_pair.split('_')
             relevant_news = []

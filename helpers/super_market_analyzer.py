@@ -109,7 +109,7 @@ class SuperMarketAnalyzer:
                     print(f"Error fetching news from {source}: {str(e)}")
                     
         return news_items
-
+                        
     def _get_technical_analysis(self, currency_pair):
         """Get technical analysis signals."""
         signals = []
@@ -117,7 +117,7 @@ class SuperMarketAnalyzer:
         for source, url in self.news_sources.items():
             if 'technical' in source:
                 try:
-                    response = requests.get(f"{url}{currency_pair}", timeout=10)
+                    response = requests.get(f"{url}{currency_pair}", timeout=30)
                     if response.status_code == 200:
                         soup = BeautifulSoup(response.text, 'html.parser')
                         analysis_sections = soup.find_all(['div', 'section'], class_=['technical-analysis', 'market-analysis'])
@@ -144,7 +144,7 @@ class SuperMarketAnalyzer:
         for source, url in self.news_sources.items():
             if 'econ' in source:
                 try:
-                    response = requests.get(url, timeout=10)
+                    response = requests.get(url, timeout=30)
                     if response.status_code == 200:
                         soup = BeautifulSoup(response.text, 'html.parser')
                         for event in soup.find_all(['tr', 'div'], class_=['event', 'calendar-event']):
@@ -181,7 +181,7 @@ class SuperMarketAnalyzer:
             try:
                 url = self.news_sources.get(bank)
                 if url:
-                    response = requests.get(url, timeout=10)
+                    response = requests.get(url, timeout=30)
                     if response.status_code == 200:
                         soup = BeautifulSoup(response.text, 'html.parser')
                         for item in soup.find_all(['article', 'div'], class_=['news', 'press-release']):

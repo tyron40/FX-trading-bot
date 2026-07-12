@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 import time
 
-class MarketAnalyzer:
+class EnhancedMarketAnalyzer:
     def __init__(self):
         self.urls = {
             'marketpulse': "https://www.marketpulse.com/",
@@ -29,7 +29,7 @@ class MarketAnalyzer:
             
             # Collect news from MarketPulse
             try:
-                response = requests.get(self.urls['marketpulse'], timeout=10)
+                response = requests.get(self.urls['marketpulse'], timeout=30)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     for article in soup.find_all('article', class_='post'):
@@ -39,7 +39,7 @@ class MarketAnalyzer:
 
             # Collect news from OANDA
             try:
-                response = requests.get(self.urls['oanda_news'], timeout=10)
+                response = requests.get(self.urls['oanda_news'], timeout=30)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
                     for article in soup.find_all('article'):

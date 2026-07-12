@@ -1,16 +1,15 @@
-import v20
+from tpqoa.tpqoa import tpqoa
 
 try:
-    ctx = v20.Context(
-        hostname='api-fxpractice.oanda.com',
-        port=443,
-        token='bee66320545953c2207819939ac67f0-8d65c577151e1820ea316f73d400026a'
-    )
-    
-    # Try to get account summary
-    response = ctx.account.summary("101-001-17388471-001")
+    oanda = tpqoa("config/oanda_live.cfg")
+    instruments = oanda.get_instruments()
     print("Connection successful!")
-    print("Response:", response.raw_body)
+    print(f"Available instruments: {len(instruments)}")
+    print("First 5 instruments:", [inst[1] for inst in instruments[:5]])
+    
+    # Get account summary
+    summary = oanda.get_account_summary()
+    print(f"\nAccount Balance: ${summary.get('balance', 'N/A')}")
     
 except Exception as e:
     print("Error:", str(e))

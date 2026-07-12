@@ -3,13 +3,13 @@ from datetime import datetime, timedelta
 
 import pytz
 
-from tpqoa import tpqoa
+from tpqoa.tpqoa import tpqoa as Tpqoa
 import matplotlib.pyplot as plt
 
 plt.style.use("seaborn-v0_8")
 
 
-class LiveTrader(tpqoa):
+class LiveTrader(Tpqoa):
     def __init__(
         self,
         cfg,

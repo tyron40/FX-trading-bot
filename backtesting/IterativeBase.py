@@ -1,4 +1,4 @@
-import tpqoa
+from tpqoa.tpqoa import tpqoa
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -38,9 +38,8 @@ class IterativeBase:
         self.acquire_data()
 
     def acquire_data(self):
-        """A general function to acquire data of an instrument from a source."""
-        oanda = tpqoa.tpqoa(self._cfg)
-
+    
+        oanda = tpqoa(self._cfg)
         bid_df = oanda.get_history(
             self._instrument, self._start, self._end, self._granularity, "B"
         )

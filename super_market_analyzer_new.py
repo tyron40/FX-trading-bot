@@ -91,7 +91,7 @@ class SuperMarketAnalyzer:
 
         # First try OANDA news
         try:
-            response = requests.get(self.news_sources['oanda_news'], headers=headers, timeout=10)
+            response = requests.get(self.news_sources['oanda_news'], headers=headers, timeout=30)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 news_container = soup.find('div', class_='news-container')
@@ -111,7 +111,7 @@ class SuperMarketAnalyzer:
         for source, url in self.news_sources.items():
             if source not in ['oanda_news'] and not any(x in source for x in ['technical', 'econ', 'bank']):
                 try:
-                    response = requests.get(url, headers=headers, timeout=10)
+                    response = requests.get(url, headers=headers, timeout=30)
                     if response.status_code == 200:
                         soup = BeautifulSoup(response.text, 'html.parser')
                         for article in soup.find_all(['article', 'div'], class_=['article', 'news-item']):
@@ -137,7 +137,7 @@ class SuperMarketAnalyzer:
         # First try OANDA analysis
         try:
             url = f"{self.news_sources['oanda_analysis']}{currency_pair.lower().replace('_', '')}"
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 analysis_sections = soup.find_all(['div', 'section'], class_=['technical-analysis', 'market-analysis'])
@@ -157,7 +157,7 @@ class SuperMarketAnalyzer:
         for source, url in self.news_sources.items():
             if 'technical' in source and source != 'oanda_analysis':
                 try:
-                    response = requests.get(f"{url}{currency_pair}", headers=headers, timeout=10)
+                    response = requests.get(f"{url}{currency_pair}", headers=headers, timeout=30)
                     if response.status_code == 200:
                         soup = BeautifulSoup(response.text, 'html.parser')
                         for section in soup.find_all(['div', 'section'], class_=['technical-analysis', 'market-analysis']):
@@ -185,7 +185,7 @@ class SuperMarketAnalyzer:
         for source, url in self.news_sources.items():
             if 'econ' in source:
                 try:
-                    response = requests.get(url, headers=headers, timeout=10)
+                    response = requests.get(url, headers=headers, timeout=30)
                     if response.status_code == 200:
                         soup = BeautifulSoup(response.text, 'html.parser')
                         for event in soup.find_all(['tr', 'div'], class_=['event', 'calendar-event']):
@@ -226,7 +226,7 @@ class SuperMarketAnalyzer:
             try:
                 url = self.news_sources.get(bank)
                 if url:
-                    response = requests.get(url, headers=headers, timeout=10)
+                    response = requests.get(url, headers=headers, timeout=30)
                     if response.status_code == 200:
                         soup = BeautifulSoup(response.text, 'html.parser')
                         for item in soup.find_all(['article', 'div'], class_=['news', 'press-release']):

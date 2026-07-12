@@ -1,0 +1,19 @@
+- [x] Restore full right-side panels (account, signals, positions, performance, history)
+- [x] Keep mode selector functional (Faster/Balanced/Safer)
+- [x] Implement improved auto-exit management (SL/TP + trailing protection + max hold)
+- [x] Add STOP behavior to close all bot-managed open positions (default enabled)
+- [x] Re-test UI render and startup behavior
+- [x] Identify stable final runnable entrypoint
+- [x] Validate Python/pip environment
+- [x] Create and initialize project venv
+- [x] Install dependencies from requirements.txt
+- [x] Verify OANDA config presence/format
+- [x] Run API connectivity test
+- [x] Launch final interface (direct: UltimateTradingInterface.py)
+
+- [ ] Pro Upgrade Pack: add risk guardrails (daily loss kill-switch, max drawdown stop, spread filter)
+- [ ] Pro Upgrade Pack: add multi-source signal scoring (technical + volatility + session + optional RSS sentiment)
+- [ ] Pro Upgrade Pack: add walk-forward validation utility
+- [ ] Pro Upgrade Pack: expose controls/metrics in GUI for new guardrails
+- [ ] Thorough testing: GUI controls and live update flows
+- [ ] Thorough testing: strategy/backtest validation and guardrail behavior

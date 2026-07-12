@@ -1,7 +1,8 @@
 import os
 import shutil
+import sys
 from datetime import datetime, timedelta
-from livetrading.FemtoTrader import FemtoTrader
+from FemtoTrader_new import FemtoTrader
 from livetrading.BollingerBandsLive import BollingerBandsLive
 from livetrading.ContrarianLive import ContrarianLive
 from livetrading.MLClassificationLive import MLClassificationLive
@@ -10,6 +11,48 @@ from livetrading.SMALive import SMALive
 from helpers.enhanced_market_analyzer import EnhancedMarketAnalyzer
 
 def main():
+    # Check for command line arguments for non-interactive mode
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'auto':
+            # Auto mode: live account, auto trading, ongoing with GUI
+            account_type = "live"
+            mode = "auto"
+            duration = "ongoing"
+            # Set up live config
+            if not os.path.exists("config/oanda_live.cfg"):
+                print("Live config not found!")
+                return
+            shutil.copy2("config/oanda_live.cfg", "oanda.cfg")
+            print("\nUsing LIVE account with safe settings")
+            print("Launching GUI dashboard...")
+
+            # Import and launch GUI
+            from trading_gui import main as gui_main
+            import threading
+
+            # Start GUI in separate thread
+            gui_thread = threading.Thread(target=gui_main, daemon=True)
+            gui_thread.start()
+
+            # Wait a moment for GUI to initialize
+            import time
+            time.sleep(2)
+
+            # Start auto trader (GUI will handle the trader instance)
+            print("Auto trading will be controlled through the GUI dashboard.")
+            print("Use the GUI to start/stop trading.")
+            print("Press Ctrl+C in terminal to exit.")
+
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                return
+        else:
+            print("Usage: python main_final.py [auto]")
+            return
+
     try:
         # Ensure config directory exists
         if not os.path.exists('config'):
@@ -35,10 +78,21 @@ def main():
             if not os.path.exists("config/oanda_live.cfg"):
                 print("Live config not found!")
                 return
-                
-            print("\n⚠️ WARNING: This will trade with real money! ⚠️")
-            print("Current balance: $4.00")
-            confirm = input("Type 'yes' to confirm: ").strip().lower()
+
+            # Fetch actual balance
+            try:
+                from tpqoa.tpqoa import tpqoa
+                temp_oanda = tpqoa("config/oanda_live.cfg")
+                summary = temp_oanda.get_account_summary()
+                balance = float(summary.get('balance', 4.00))
+                print(f"\n⚠️ WARNING: This will trade with real money! ⚠️")
+                print(f"Current balance: ${balance:.2f}")
+                confirm = input("Type 'yes' to confirm: ").strip().lower()
+            except Exception as e:
+                print(f"Error fetching balance: {e}")
+                print("Current balance: $4.00 (fallback)")
+                balance = 4.00
+                confirm = input("Type 'yes' to confirm: ").strip().lower()
             
             if confirm != 'yes':
                 print("Cancelled. Switching to practice account for safety.")
@@ -46,21 +100,38 @@ def main():
                 account_type = "practice"
             else:
                 shutil.copy2("config/oanda_live.cfg", "oanda.cfg")
-                print("\nUsing LIVE account with safe settings")
+                print(f"\nUsing LIVE account (${balance:.2f}) with safe settings")
                 account_type = "live"
         else:
             print("Invalid choice!")
             return
-
+                
         # Ask for trading mode
         print("\nWould you like to enable auto trading?")
         print("1: Yes - Let the bot trade automatically")
         print("2: No - I want to control trading manually")
-        
-        mode = input("\nEnter choice (1 or 2): ").strip()
-        
-        if mode == "1":
-            # Auto trading mode
+
+        mode = input("\nEnter choice (1 or 2, or 'yes'/'no'): ").strip().lower()
+
+        if mode in ["1", "yes"]:
+            # Auto trading mode - choose duration
+            print("\nChoose trading duration:")
+            print("1: Ongoing (continuous trading)")
+            print("2: Monthly (30 days)")
+            print("3: Yearly (365 days)")
+
+            duration_choice = input("\nEnter choice (1, 2, or 3): ").strip()
+
+            stop_datetime = None
+            if duration_choice == "2":
+                stop_datetime = datetime.now() + timedelta(days=30)
+                print(f"\nTrading will stop at: {stop_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            elif duration_choice == "3":
+                stop_datetime = datetime.now() + timedelta(days=365)
+                print(f"\nTrading will stop at: {stop_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            elif duration_choice != "1":
+                print("Invalid choice! Defaulting to ongoing trading.")
+
             if account_type == "live":
                 print("\nStarting Smart Auto Trader with safe settings for $4 account...")
                 trader = FemtoTrader(
@@ -77,11 +148,16 @@ def main():
                     stop_loss_pct=0.5,      # Stop loss at 0.5%
                     take_profit_pct=1.0,    # Take profit at 1.0%
                 )
+
+            # Modify trader to include stop_datetime if set
+            if stop_datetime:
+                trader._stop_datetime = stop_datetime
+
             trader.run()
-            
+                
         elif mode == "2":
             # Manual trading mode
-            from tpqoa import tpqoa
+            from tpqoa.tpqoa import tpqoa
             oanda = tpqoa("oanda.cfg")
             market_analyzer = EnhancedMarketAnalyzer()
             
