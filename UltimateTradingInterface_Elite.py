@@ -17,6 +17,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
+from typing import Dict, Optional
 from datetime import datetime, time as dt_time
 
 import pandas as pd
@@ -66,6 +67,17 @@ class OrderProposal:
 class ValidationResult:
     allowed: bool
     reason: str
+
+
+@dataclass
+class InstrumentMeta:
+    name: str
+    base: str
+    quote: str
+    pip_location: int
+    display_precision: int
+    margin_rate: float
+    minimum_trade_size: int
 
 
 class EliteTrader(tpqoa):
