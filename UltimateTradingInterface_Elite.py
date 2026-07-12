@@ -69,21 +69,48 @@ class EliteTrader(tpqoa):
             return False
 
     def refresh_instruments(self):
+        fx = []
         try:
             instruments = self.get_instruments()
-            fx = []
             for ins in instruments:
-                name = getattr(ins, "name", "")
-                typ = str(getattr(ins, "type", "")).upper()
+                if isinstance(ins, (list, tuple)):
+                    name = str(ins[1]) if len(ins) > 1 else ""
+                    typ = str(ins[2]).upper() if len(ins) > 2 else ""
+                else:
+                    name = str(getattr(ins, "name", ""))
+                    typ = str(getattr(ins, "type", "")).upper()
                 if "_" in name and ("CURRENCY" in typ or typ == ""):
                     fx.append(name)
+
             fx = sorted(set(fx))
             if fx:
                 self.instruments = fx
-            return self.instruments
+                print(f"Instrument refresh: loaded {len(fx)} FX pairs via get_instruments()")
+                return self.instruments
         except Exception as e:
-            print(f"Instrument refresh error: {e}")
-            return self.instruments
+            print(f"Instrument refresh primary path failed: {e}")
+
+        try:
+            response = self.ctx.account.instruments(self.account_id)
+            if response.status == 200:
+                raw = response.get("instruments", [])
+                fx = []
+                for ins in raw:
+                    name = str(getattr(ins, "name", ""))
+                    typ = str(getattr(ins, "type", "")).upper()
+                    if "_" in name and ("CURRENCY" in typ or typ == ""):
+                        fx.append(name)
+
+                fx = sorted(set(fx))
+                if fx:
+                    self.instruments = fx
+                    print(f"Instrument refresh: loaded {len(fx)} FX pairs via ctx.account.instruments()")
+                    return self.instruments
+        except Exception as e:
+            print(f"Instrument refresh fallback path failed: {e}")
+
+        print(f"Instrument refresh: using fallback basket ({len(self.instruments)} pairs)")
+        return self.instruments
 
     def get_live_data(self, instrument, count=120):
         try:
@@ -124,7 +151,7 @@ class EliteTrader(tpqoa):
             return "UNCERTAIN"
         d = df.copy()
         if "complete" in d.columns:
-            d = d[d["complete"] is True]
+            d = d[d["complete"] == True]
         if len(d) < 60:
             return "UNCERTAIN"
 
@@ -151,7 +178,7 @@ class EliteTrader(tpqoa):
 
         df = df.copy()
         if "complete" in df.columns:
-            df = df[df["complete"] is True]
+            df = df[df["complete"] == True]
         else:
             df = df.iloc[:-1]
 
