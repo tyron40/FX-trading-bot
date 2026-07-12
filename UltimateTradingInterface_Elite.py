@@ -398,6 +398,7 @@ class EliteTradingGUI:
         self.analysis_results = {}
         self.signal_strengths = {}
         self.close_all_on_stop = tk.BooleanVar(value=True)
+        self.max_chart_tabs = 12
 
         self.setup_style()
         self.create_gui()
@@ -451,6 +452,7 @@ class EliteTradingGUI:
         left = ttk.Frame(content)
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
 
+
         charts_box = ttk.LabelFrame(left, text="LIVE CHARTS")
         charts_box.pack(fill=tk.BOTH, expand=True)
 
@@ -468,6 +470,9 @@ class EliteTradingGUI:
         right = ttk.Frame(content, width=420)
         right.pack(side=tk.RIGHT, fill=tk.Y)
         right.pack_propagate(False)
+
+        left.update_idletasks()
+        right.update_idletasks()
 
         account_box = ttk.LabelFrame(right, text="ACCOUNT INFO")
         account_box.pack(fill=tk.X, pady=(0, 8))
@@ -512,7 +517,9 @@ class EliteTradingGUI:
             self.chart_notebook.forget(tab_id)
         self.charts = {}
 
-        for inst in instruments:
+        display_instruments = instruments[: self.max_chart_tabs]
+
+        for inst in display_instruments:
             tab = ttk.Frame(self.chart_notebook)
             self.chart_notebook.add(tab, text=inst.replace("_", "/"))
             fig = Figure(figsize=(8, 4), facecolor=COLORS["bg"])
@@ -520,7 +527,7 @@ class EliteTradingGUI:
             canvas = FigureCanvasTkAgg(fig, tab)
             canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
             self.charts[inst] = {"fig": fig, "ax": ax, "canvas": canvas}
-
+            
     def rebuild_signal_widgets(self, instruments):
         for child in self.signal_container.winfo_children():
             child.destroy()
@@ -547,12 +554,13 @@ class EliteTradingGUI:
                 self.rebuild_chart_tabs(self.trader.instruments)
                 self.rebuild_signal_widgets(self.trader.instruments)
 
+                shown = min(len(self.trader.instruments), self.max_chart_tabs)
                 self.status_label.config(
-                    text=f"{account_type.upper()} Connected ({len(self.trader.instruments)} FX pairs)",
+                    text=f"{account_type.upper()} Connected ({len(self.trader.instruments)} FX pairs, showing {shown} charts)",
                     foreground=COLORS["success"],
                 )
                 self.log(
-                    f"Connected to {account_type.upper()} account. Tracking {len(self.trader.instruments)} FX pairs."
+                    f"Connected to {account_type.upper()} account. Tracking {len(self.trader.instruments)} FX pairs; showing {shown} chart tabs."
                 )
             except Exception as e:
                 self.status_label.config(text="Connection failed", foreground=COLORS["error"])
