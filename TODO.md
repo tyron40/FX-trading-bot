@@ -12,10 +12,12 @@
 - [x] Launch final interface (direct: UltimateTradingInterface.py)
 
 - [ ] Phase 1: Closed-candle-only data flow (preserve and use OANDA candle complete flag)
+- [ ] Phase 1: Add centralized validate_entry() gate
 - [ ] Phase 1: Add spread + rollover/session entry filters
-- [ ] Phase 1: Add regime gate (TRENDING/RANGING/UNCERTAIN) and block uncertain
-- [ ] Phase 1: Replace naive sizing with NAV + stop-based monetary risk sizing
-- [ ] Phase 1: Add explicit rejection logging (spread/session/regime/risk/margin)
+- [ ] Phase 1: Enforce regime gate (TRENDING/RANGING/UNCERTAIN) with uncertain blocked
+- [ ] Phase 1: Replace naive sizing with NAV + stop-based monetary risk sizing + margin guard
+- [ ] Phase 1: Add explicit rejection logging (UI + logs/trade_decisions.csv)
+- [ ] Phase 1: Add offline --smoke-test mode (no broker calls/orders)
 - [ ] Phase 1: Validate via py_compile + smoke run
 
 - [ ] Phase 2: Broker reconciliation (positions/trades/orders sync)
