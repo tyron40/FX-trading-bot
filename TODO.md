@@ -2,27 +2,18 @@
 - [x] Keep mode selector functional (Faster/Balanced/Safer)
 - [x] Implement improved auto-exit management (SL/TP + trailing protection + max hold)
 - [x] Add STOP behavior to close all bot-managed open positions (default enabled)
-- [x] Re-test UI render and startup behavior
+- [ ] Re-test UI render and startup behavior
 - [x] Identify stable final runnable entrypoint
 - [x] Validate Python/pip environment
 - [x] Create and initialize project venv
 - [x] Install dependencies from requirements.txt
 - [x] Verify OANDA config presence/format
 - [x] Run API connectivity test
-- [x] Launch final interface (direct: UltimateTradingInterface.py)
-
-- [ ] Phase 1: Closed-candle-only data flow (preserve and use OANDA candle complete flag)
-- [ ] Phase 1: Add centralized validate_entry() gate
-- [ ] Phase 1: Add spread + rollover/session entry filters
-- [ ] Phase 1: Enforce regime gate (TRENDING/RANGING/UNCERTAIN) with uncertain blocked
-- [ ] Phase 1: Replace naive sizing with NAV + stop-based monetary risk sizing + margin guard
-- [ ] Phase 1: Add explicit rejection logging (UI + logs/trade_decisions.csv)
-- [ ] Phase 1: Add offline --smoke-test mode (no broker calls/orders)
-- [ ] Phase 1: Validate via py_compile + smoke run
-
-- [ ] Phase 2: Broker reconciliation (positions/trades/orders sync)
-- [ ] Phase 2: Broker-side stop amendment/replacement
-- [ ] Phase 2: Correlation exposure and currency-bucket limits
-- [ ] Phase 2: Daily/weekly drawdown kill-switches
-- [ ] Phase 2: Expectancy/profit-factor/drawdown metrics panel
-- [ ] Phase 2: Walk-forward-ready exports and testing harness
+- [x] Launch final interface (run_ultimate_interface.py)
+- [ ] Elite Phase 1: centralized validate_entry() gate
+- [ ] Elite Phase 1: spread + rollover/session hard filters
+- [ ] Elite Phase 1: enforce regime block behavior
+- [ ] Elite Phase 1: NAV/stop-based sizing + margin/invalid-order guards
+- [ ] Elite Phase 1: UI + CSV persistent rejection logging
+- [ ] Elite Phase 1: offline --smoke-test mode
+- [ ] Elite Phase 1: compile check + smoke test + practice-account validation
