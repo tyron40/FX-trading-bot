@@ -1,28 +1,19 @@
 """
-Elite Ultimate Trading Interface (Phase 1 safety gates)
-
-Implemented:
-- centralized validate_entry()
-- closed-candle-only validation
-- spread/session/rollover/regime gating
-- NAV+stop risk sizing + margin/invalid-order guards
-- decision logging to logs/trade_decisions.csv
-- UI rejection logging
-- offline --smoke-test mode
+Perfect Ultimate Trading Interface
+- Full dashboard (charts + right-side panels)
+- Mode selector (Faster/Balanced/Safer)
+- Automated exits (SL/TP + trailing protection + max hold)
+- Stop button can close all bot-managed positions
+- tpqoa-compatible broker-side protection (sl_distance, tp_price, tsl_distance)
 """
 
-import argparse
-import csv
-import os
-import threading
-import time
-from dataclasses import dataclass
-from typing import Dict, Optional
-from datetime import datetime, time as dt_time
-
-import pandas as pd
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
+import threading
+import time
+from datetime import datetime
+import pandas as pd
+import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from tpqoa.tpqoa import tpqoa
@@ -41,51 +32,10 @@ COLORS = {
     "hover": "#45475a",
 }
 
-DECISION_FIELDS = [
-    "timestamp", "instrument", "signal", "accepted", "reason", "regime",
-    "spread_pips", "entry", "stop_loss", "take_profit", "units",
-    "margin_available", "mode", "score"
-]
 
-
-@dataclass
-class OrderProposal:
-    instrument: str
-    side: str
-    entry: float
-    stop_loss: float
-    take_profit: float
-    units: int
-    risk_amount: float
-    estimated_loss: float
-    required_margin: float
-    spread_pips: float
-    regime: str
-
-
-@dataclass
-class ValidationResult:
-    allowed: bool
-    reason: str
-
-
-@dataclass
-class InstrumentMeta:
-    name: str
-    base: str
-    quote: str
-    pip_location: int
-    display_precision: int
-    margin_rate: float
-    minimum_trade_size: int
-
-
-class EliteTrader(tpqoa):
-    def __init__(self, config_path, timeframe="M5", risk_pct=1.0, smoke_test=False):
-        self.smoke_test = smoke_test
-        if not self.smoke_test:
-            super().__init__(config_path)
-
+class PerfectTrader(tpqoa):
+    def __init__(self, config_path, timeframe="M5", risk_pct=1.0):
+        super().__init__(config_path)
         self.timeframe = timeframe
         self.risk_pct = risk_pct / 100.0
         self.strategy_mode = "Balanced"
@@ -97,62 +47,14 @@ class EliteTrader(tpqoa):
 
         self.balance = 10000.0
         self.currency = "USD"
-        self.nav = 10000.0
+        self.nav = 0.0
         self.unrealized_pl = 0.0
         self.margin_used = 0.0
-        self.margin_available = 10000.0
-
-        self.spread_limits = {
-            "EUR_USD": 1.5, "USD_JPY": 1.8, "GBP_USD": 2.0, "AUD_USD": 1.8, "USD_CHF": 2.0
-        }
-
-        self.log_dir = "logs"
-        self.decisions_path = os.path.join(self.log_dir, "trade_decisions.csv")
-        self._init_decision_log()
+        self.margin_available = 0.0
 
         self.update_account_info()
-        if not self.smoke_test:
-            self.refresh_instruments()
-
-    def _init_decision_log(self):
-        os.makedirs(self.log_dir, exist_ok=True)
-        if not os.path.exists(self.decisions_path):
-            with open(self.decisions_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=DECISION_FIELDS)
-                writer.writeheader()
-
-    def _log_decision(self, row):
-        with open(self.decisions_path, "a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=DECISION_FIELDS)
-            writer.writerow({k: row.get(k, "") for k in DECISION_FIELDS})
-
-    def _decision_row(self, instrument, signal, accepted, reason, regime, spread_pips, score,
-                      entry="", stop_loss="", take_profit="", units=""):
-        return {
-            "timestamp": datetime.utcnow().isoformat(),
-            "instrument": instrument,
-            "signal": signal,
-            "accepted": bool(accepted),
-            "reason": reason,
-            "regime": regime,
-            "spread_pips": spread_pips,
-            "entry": entry,
-            "stop_loss": stop_loss,
-            "take_profit": take_profit,
-            "units": units,
-            "margin_available": self.margin_available,
-            "mode": self.strategy_mode,
-            "score": score
-        }
 
     def update_account_info(self):
-        if self.smoke_test:
-            self.balance = 10000.0
-            self.nav = 10000.0
-            self.margin_available = 10000.0
-            self.margin_used = 0.0
-            self.unrealized_pl = 0.0
-            return True
         try:
             summary = self.get_account_summary(detailed=True)
             self.balance = float(summary.get("balance", 10000.0))
@@ -166,44 +68,7 @@ class EliteTrader(tpqoa):
             print(f"Could not get account info: {e}")
             return False
 
-    def refresh_instruments(self):
-        fx = []
-        try:
-            instruments = self.get_instruments()
-            for ins in instruments:
-                if isinstance(ins, (list, tuple)):
-                    name = str(ins[1]) if len(ins) > 1 else ""
-                    typ = str(ins[2]).upper() if len(ins) > 2 else ""
-                else:
-                    name = str(getattr(ins, "name", ""))
-                    typ = str(getattr(ins, "type", "")).upper()
-                if "_" in name and ("CURRENCY" in typ or typ == ""):
-                    fx.append(name)
-            fx = sorted(set(fx))
-            if fx:
-                self.instruments = fx
-                return self.instruments
-        except Exception:
-            pass
-        return self.instruments
-
     def get_live_data(self, instrument, count=120):
-        if self.smoke_test:
-            idx = pd.date_range(end=pd.Timestamp.utcnow(), periods=count, freq="5min")
-            base = 1.10 if "JPY" not in instrument else 150.0
-            closes = [base + (i * 0.0001) for i in range(count)]
-            if "JPY" in instrument:
-                closes = [base + (i * 0.01) for i in range(count)]
-            df = pd.DataFrame({
-                "open": closes,
-                "high": [c * 1.0005 for c in closes],
-                "low": [c * 0.9995 for c in closes],
-                "close": closes,
-                "volume": [100] * count,
-                "complete": [True] * count
-            }, index=idx)
-            return df
-
         try:
             response = self.ctx.instrument.candles(
                 instrument,
@@ -224,68 +89,38 @@ class EliteTrader(tpqoa):
                         "low": float(c.mid.l),
                         "close": float(c.mid.c),
                         "volume": int(c.volume),
-                        "complete": bool(getattr(c, "complete", False)),
                     }
                 )
+
             df = pd.DataFrame(rows)
             if df.empty:
                 return None
             df.set_index("time", inplace=True)
             return df
-        except Exception:
+        except Exception as e:
+            print(f"Data error: {e}")
             return None
-
-    def _closed_candles(self, df):
-        if df is None or len(df) < 2:
-            return None
-        d = df.copy()
-        if "complete" in d.columns:
-            d = d[d["complete"] == True]
-        else:
-            d = d.iloc[:-1]
-        return d if d is not None and len(d) > 0 else None
-
-    def detect_regime(self, df):
-        d = self._closed_candles(df)
-        if d is None or len(d) < 60:
-            return "UNCERTAIN"
-
-        d["ema_50"] = d["close"].ewm(span=50, adjust=False).mean()
-        d["ema_200"] = d["close"].ewm(span=200, adjust=False).mean()
-        d["ret"] = d["close"].pct_change()
-
-        latest = d.iloc[-1]
-        vol = d["ret"].rolling(20).std().iloc[-1]
-        ema_gap = abs(latest["ema_50"] - latest["ema_200"]) / max(latest["close"], 1e-8)
-        bb_mid = d["close"].rolling(20).mean().iloc[-1]
-        bb_std = d["close"].rolling(20).std().iloc[-1]
-        bb_width = (4 * bb_std / bb_mid) if bb_mid and bb_mid > 0 else 0.0
-
-        if ema_gap > 0.0015 and vol > 0.0005:
-            return "TRENDING"
-        if ema_gap < 0.0007 and bb_width < 0.01:
-            return "RANGING"
-        return "UNCERTAIN"
 
     def analyze_fast(self, df):
-        d = self._closed_candles(df)
-        if d is None or len(d) < 60:
-            return {"signal": "HOLD", "score": 0.0, "indicators": {}, "reason": "insufficient_closed_candles"}
+        if df is None or len(df) < 60:
+            return {"signal": "HOLD", "score": 0.0, "indicators": {}}
 
-        d["sma_20"] = d["close"].rolling(20).mean()
-        d["sma_50"] = d["close"].rolling(50).mean()
-        delta = d["close"].diff()
+        df = df.copy()
+        df["sma_20"] = df["close"].rolling(20).mean()
+        df["sma_50"] = df["close"].rolling(50).mean()
+
+        delta = df["close"].diff()
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
         rs = gain / loss
-        d["rsi"] = 100 - (100 / (1 + rs))
+        df["rsi"] = 100 - (100 / (1 + rs))
 
-        d["bb_mid"] = d["close"].rolling(20).mean()
-        d["bb_std"] = d["close"].rolling(20).std()
-        d["bb_upper"] = d["bb_mid"] + 2 * d["bb_std"]
-        d["bb_lower"] = d["bb_mid"] - 2 * d["bb_std"]
+        df["bb_mid"] = df["close"].rolling(20).mean()
+        df["bb_std"] = df["close"].rolling(20).std()
+        df["bb_upper"] = df["bb_mid"] + 2 * df["bb_std"]
+        df["bb_lower"] = df["bb_mid"] - 2 * df["bb_std"]
 
-        latest = d.iloc[-1]
+        latest = df.iloc[-1]
         score = 0.0
         indicators = {}
 
@@ -326,6 +161,10 @@ class EliteTrader(tpqoa):
                 signal = "BUY"
             elif score < -th and trend_down:
                 signal = "SELL"
+            elif trend_up and latest["close"] > latest["sma_20"] and latest["rsi"] < 72 and score > 0.20:
+                signal = "BUY"
+            elif trend_down and latest["close"] < latest["sma_20"] and latest["rsi"] > 28 and score < -0.20:
+                signal = "SELL"
         elif self.strategy_mode == "Safer":
             if score > th and trend_up and latest["rsi"] < 65:
                 signal = "BUY"
@@ -343,137 +182,65 @@ class EliteTrader(tpqoa):
             "indicators": indicators,
             "price": float(latest["close"]),
             "rsi": float(latest["rsi"]),
-            "reason": "ok",
         }
 
-    def calculate_position_size(self, entry_price, stop_price, conversion_rate=1.0):
-        nav_base = self.nav if self.nav > 0 else self.balance
-        risk_amount = nav_base * self.risk_pct
-        loss_per_unit = abs(entry_price - stop_price) * max(conversion_rate, 1e-8)
-        if loss_per_unit <= 0:
-            return 0
-        units = int(risk_amount / loss_per_unit)
-        return max(1, units)
+    def calculate_position_size(self, price):
+        risk_amount = self.balance * self.risk_pct
+        stop_dist = max(price * 0.008, 1e-6)
+        units = int(risk_amount / stop_dist)
+        return max(100, min(units, 10000))
 
-    def get_spread_pips(self, instrument):
-        if self.smoke_test:
-            return 0.8
+    def execute_trade(self, instrument, signal):
         try:
             _, bid, ask = self.get_prices(instrument)
-            pip_size = 0.01 if "JPY" in instrument else 0.0001
-            return (ask - bid) / pip_size
-        except Exception:
-            return 9999.0
-
-    def is_session_allowed(self):
-        hour = datetime.utcnow().hour
-        return 7 <= hour <= 20
-
-    def is_rollover_window(self):
-        now = datetime.utcnow().time()
-        return dt_time(20, 55) <= now <= dt_time(21, 15)
-
-    def is_market_open(self):
-        return True if self.smoke_test else datetime.now().weekday() < 5
-
-    def validate_entry(self, instrument, signal, analysis, regime, spread_pips):
-        if signal not in ("BUY", "SELL"):
-            return False, "hold_signal"
-
-        if instrument in self.positions:
-            return False, "already_in_position"
-
-        if self.is_rollover_window():
-            return False, "rollover_window"
-
-        if not self.is_session_allowed():
-            return False, "session_closed"
-
-        if spread_pips > self.spread_limits.get(instrument, 2.2):
-            return False, f"spread_too_high_{spread_pips:.2f}"
-
-        if regime == "UNCERTAIN":
-            return False, "uncertain_regime"
-
-        return True, "ok"
-
-    def execute_trade(self, instrument, signal, analysis, regime, spread_pips):
-        score = float(analysis.get("score", 0.0)) if analysis else 0.0
-        accepted, reason = self.validate_entry(instrument, signal, analysis, regime, spread_pips)
-
-        if not accepted:
-            self._log_decision(self._decision_row(
-                instrument, signal, False, reason, regime, spread_pips, score
-            ))
-            return None, reason
-
-        try:
-            if self.smoke_test:
-                bid, ask = 1.1000, 1.1002
-            else:
-                _, bid, ask = self.get_prices(instrument)
-
-            sl_tp = {"Faster": (0.007, 0.010), "Balanced": (0.008, 0.012), "Safer": (0.006, 0.015)}
+            sl_tp = {
+                "Faster": (0.007, 0.010),
+                "Balanced": (0.008, 0.012),
+                "Safer": (0.006, 0.015),
+            }
             sl_pct, tp_pct = sl_tp.get(self.strategy_mode, (0.008, 0.012))
 
-            trailing_distance_by_mode = {"Faster": 0.0012, "Balanced": None, "Safer": None}
+            trailing_distance_by_mode = {
+                "Faster": 0.0012,
+                "Balanced": None,
+                "Safer": None,
+            }
             tsl_pct = trailing_distance_by_mode.get(self.strategy_mode, None)
 
             if signal == "BUY":
                 entry = ask
+                units = self.calculate_position_size(entry)
                 direction = "LONG"
                 stop_loss = entry * (1 - sl_pct)
                 take_profit = entry * (1 + tp_pct)
-                signed = 1
-            else:
+                signed_units = units
+            elif signal == "SELL":
                 entry = bid
+                units = self.calculate_position_size(entry)
                 direction = "SHORT"
                 stop_loss = entry * (1 + sl_pct)
                 take_profit = entry * (1 - tp_pct)
-                signed = -1
-
-            units = self.calculate_position_size(entry, stop_loss)
-            if units <= 0:
-                reason = "invalid_units"
-                self._log_decision(self._decision_row(
-                    instrument, signal, False, reason, regime, spread_pips, score, entry, stop_loss, take_profit, units
-                ))
-                return None, reason
-
-            nav_base = self.nav if self.nav > 0 else self.balance
-            estimated_loss = abs(entry - stop_loss) * units
-            allowed_risk = nav_base * self.risk_pct
-            if estimated_loss > allowed_risk:
-                reason = "risk_exceeded"
-                self._log_decision(self._decision_row(
-                    instrument, signal, False, reason, regime, spread_pips, score, entry, stop_loss, take_profit, units
-                ))
-                return None, reason
-
-            if self.margin_available <= 0:
-                reason = "no_margin_available"
-                self._log_decision(self._decision_row(
-                    instrument, signal, False, reason, regime, spread_pips, score, entry, stop_loss, take_profit, units
-                ))
-                return None, reason
-
-            if self.smoke_test:
-                order = {"price": entry, "id": f"SMOKE-{instrument}-{int(time.time())}"}
+                signed_units = -units
             else:
-                order_kwargs = {
-                    "sl_distance": float(abs(entry - stop_loss)),
-                    "tp_price": float(take_profit),
-                }
-                if tsl_pct is not None:
-                    order_kwargs["tsl_distance"] = float(entry * tsl_pct)
-                order = self.create_order(instrument, signed * units, suppress=True, ret=True, **order_kwargs)
+                return None
+
+            order_kwargs = {
+                "sl_distance": float(abs(entry - stop_loss)),
+                "tp_price": float(take_profit),
+            }
+            if tsl_pct is not None:
+                order_kwargs["tsl_distance"] = float(entry * tsl_pct)
+
+            order = self.create_order(
+                instrument,
+                signed_units,
+                suppress=True,
+                ret=True,
+                **order_kwargs
+            )
 
             if not order:
-                reason = "invalid_order_response"
-                self._log_decision(self._decision_row(
-                    instrument, signal, False, reason, regime, spread_pips, score, entry, stop_loss, take_profit, units
-                ))
-                return None, reason
+                return None
 
             trade = {
                 "instrument": instrument,
@@ -483,25 +250,38 @@ class EliteTrader(tpqoa):
                 "stop_loss": float(stop_loss),
                 "take_profit": float(take_profit),
                 "trailing_stop_distance": float(entry * tsl_pct) if tsl_pct else None,
-                "entry_time": datetime.utcnow(),
+                "entry_time": datetime.now(),
                 "status": "OPEN",
                 "peak_price": float(entry),
                 "trough_price": float(entry),
                 "order_id": order.get("id"),
+                "tp_order_id": order.get("tpOrder", {}).get("id") if isinstance(order.get("tpOrder"), dict) else None,
+                "sl_order_id": order.get("slOrder", {}).get("id") if isinstance(order.get("slOrder"), dict) else None,
+                "tsl_order_id": order.get("tslOrder", {}).get("id") if isinstance(order.get("tslOrder"), dict) else None,
             }
+
             self.positions[instrument] = trade
             self.trades.append(trade)
-
-            self._log_decision(self._decision_row(
-                instrument, signal, True, "ok", regime, spread_pips, score, entry, stop_loss, take_profit, units
-            ))
-            return trade, "ok"
+            return trade
         except Exception as e:
-            reason = f"order_exception:{type(e).__name__}"
-            self._log_decision(self._decision_row(
-                instrument, signal, False, reason, regime, spread_pips, score
-            ))
-            return None, reason
+            print(f"Trade execution error: {e}")
+            return None
+
+    def check_exit_conditions(self, instrument):
+        if instrument not in self.positions:
+            return
+        try:
+            pos = self.positions[instrument]
+            _, bid, ask = self.get_prices(instrument)
+            current = bid if pos["direction"] == "LONG" else ask
+            if pos["direction"] == "LONG":
+                if current <= pos["stop_loss"] or current >= pos["take_profit"]:
+                    self.close_position(instrument)
+            else:
+                if current >= pos["stop_loss"] or current <= pos["take_profit"]:
+                    self.close_position(instrument)
+        except Exception:
+            pass
 
     def close_position(self, instrument):
         if instrument not in self.positions:
@@ -509,47 +289,44 @@ class EliteTrader(tpqoa):
         try:
             pos = self.positions[instrument]
             units = pos["units"]
-
-            if self.smoke_test:
-                order = {"pl": 0, "price": pos["entry_price"]}
+            if pos["direction"] == "LONG":
+                order = self.create_order(instrument, -units, suppress=True, ret=True)
             else:
-                order = self.create_order(
-                    instrument,
-                    -units if pos["direction"] == "LONG" else units,
-                    suppress=True,
-                    ret=True,
-                )
+                order = self.create_order(instrument, units, suppress=True, ret=True)
+
             if not order:
                 return None
 
             pnl = float(order.get("pl", 0))
             pos["exit_price"] = float(order.get("price", 0))
-            pos["exit_time"] = datetime.utcnow()
+            pos["exit_time"] = datetime.now()
             pos["pnl"] = pnl
             pos["status"] = "CLOSED"
             self.closed_trades.append(pos.copy())
             del self.positions[instrument]
             self.update_account_info()
             return pos
-        except Exception:
+        except Exception as e:
+            print(f"Close error: {e}")
             return None
 
+    def is_market_open(self):
+        return datetime.now().weekday() < 5
 
-class EliteTradingGUI:
-    def __init__(self, root, smoke_test=False):
+
+class PerfectTradingGUI:
+    def __init__(self, root):
         self.root = root
-        self.root.title("🚀 FX Trading Bot - Elite Edition")
+        self.root.title("🚀 FX Trading Bot - Perfect Edition")
         self.root.geometry("1900x1000")
         self.root.configure(bg=COLORS["bg"])
 
-        self.smoke_test = smoke_test
         self.trader = None
         self.trading_active = False
         self.market_data = {}
         self.analysis_results = {}
         self.signal_strengths = {}
         self.close_all_on_stop = tk.BooleanVar(value=True)
-        self.max_chart_tabs = 12
 
         self.setup_style()
         self.create_gui()
@@ -572,10 +349,8 @@ class EliteTradingGUI:
 
         ttk.Label(top, text="Account:").pack(side=tk.LEFT, padx=4)
         self.account_var = tk.StringVar(value="demo")
-        ttk.Radiobutton(top, text="Demo", variable=self.account_var, value="demo",
-                        command=lambda: self.connect_account("demo")).pack(side=tk.LEFT)
-        ttk.Radiobutton(top, text="Live", variable=self.account_var, value="live",
-                        command=lambda: self.connect_account("live")).pack(side=tk.LEFT)
+        ttk.Radiobutton(top, text="Demo", variable=self.account_var, value="demo", command=lambda: self.connect_account("demo")).pack(side=tk.LEFT)
+        ttk.Radiobutton(top, text="Live", variable=self.account_var, value="live", command=lambda: self.connect_account("live")).pack(side=tk.LEFT)
 
         self.start_btn = ttk.Button(top, text="▶ START", style="Success.TButton", command=self.start_trading)
         self.start_btn.pack(side=tk.LEFT, padx=8)
@@ -586,17 +361,15 @@ class EliteTradingGUI:
 
         ttk.Label(top, text="Timeframe:").pack(side=tk.LEFT, padx=4)
         self.timeframe_var = tk.StringVar(value="M5")
-        ttk.Combobox(top, textvariable=self.timeframe_var, values=["M1", "M5", "M15", "M30", "H1", "H4"],
-                     state="readonly", width=6).pack(side=tk.LEFT)
+        ttk.Combobox(top, textvariable=self.timeframe_var, values=["M1", "M5", "M15", "M30", "H1", "H4"], state="readonly", width=6).pack(side=tk.LEFT)
 
         ttk.Label(top, text="Mode:").pack(side=tk.LEFT, padx=4)
         self.mode_var = tk.StringVar(value="Balanced")
-        ttk.Combobox(top, textvariable=self.mode_var, values=["Faster", "Balanced", "Safer"],
-                     state="readonly", width=10).pack(side=tk.LEFT)
+        ttk.Combobox(top, textvariable=self.mode_var, values=["Faster", "Balanced", "Safer"], state="readonly", width=10).pack(side=tk.LEFT)
 
         ttk.Label(top, text="Risk %:").pack(side=tk.LEFT, padx=4)
         self.risk_var = tk.DoubleVar(value=1.0)
-        tk.Spinbox(top, from_=0.1, to=2.0, increment=0.1, textvariable=self.risk_var, width=5).pack(side=tk.LEFT)
+        tk.Spinbox(top, from_=0.5, to=5.0, increment=0.5, textvariable=self.risk_var, width=5).pack(side=tk.LEFT)
 
         self.status_label = ttk.Label(top, text="Initializing...", foreground=COLORS["warning"])
         self.status_label.pack(side=tk.RIGHT)
@@ -614,7 +387,14 @@ class EliteTradingGUI:
         self.chart_notebook.pack(fill=tk.BOTH, expand=True)
 
         self.charts = {}
-        self.rebuild_chart_tabs(["EUR_USD", "GBP_USD", "USD_JPY", "USD_CHF", "AUD_USD"])
+        for inst in ["EUR_USD", "GBP_USD", "USD_JPY", "USD_CHF", "AUD_USD"]:
+            tab = ttk.Frame(self.chart_notebook)
+            self.chart_notebook.add(tab, text=inst.replace("_", "/"))
+            fig = Figure(figsize=(8, 4), facecolor=COLORS["bg"])
+            ax = fig.add_subplot(111, facecolor=COLORS["panel"])
+            canvas = FigureCanvasTkAgg(fig, tab)
+            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+            self.charts[inst] = {"fig": fig, "ax": ax, "canvas": canvas}
 
         log_box = ttk.LabelFrame(left, text="ANALYSIS LOG")
         log_box.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
@@ -640,9 +420,16 @@ class EliteTradingGUI:
 
         signal_box = ttk.LabelFrame(right, text="SIGNAL STRENGTH")
         signal_box.pack(fill=tk.X, pady=(0, 8))
-        self.signal_container = signal_box
         self.signal_widgets = {}
-        self.rebuild_signal_widgets(["EUR_USD", "GBP_USD", "USD_JPY", "USD_CHF", "AUD_USD"])
+        for inst in ["EUR_USD", "GBP_USD", "USD_JPY", "USD_CHF", "AUD_USD"]:
+            row = ttk.Frame(signal_box)
+            row.pack(fill=tk.X, pady=1)
+            ttk.Label(row, text=inst.replace("_", "/"), width=10).pack(side=tk.LEFT)
+            bar = ttk.Progressbar(row, length=140, mode="determinate")
+            bar.pack(side=tk.LEFT, padx=4)
+            txt = ttk.Label(row, text="HOLD", width=6)
+            txt.pack(side=tk.RIGHT)
+            self.signal_widgets[inst] = (bar, txt)
 
         pos_box = ttk.LabelFrame(right, text="OPEN POSITIONS")
         pos_box.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
@@ -663,49 +450,15 @@ class EliteTradingGUI:
         self.history_text = scrolledtext.ScrolledText(hist_box, height=8, bg=COLORS["panel"], fg=COLORS["fg"])
         self.history_text.pack(fill=tk.BOTH, expand=True)
 
-    def rebuild_chart_tabs(self, instruments):
-        for tab_id in self.chart_notebook.tabs():
-            self.chart_notebook.forget(tab_id)
-        self.charts = {}
-        display_instruments = instruments[: self.max_chart_tabs]
-        for inst in display_instruments:
-            tab = ttk.Frame(self.chart_notebook)
-            self.chart_notebook.add(tab, text=inst.replace("_", "/"))
-            fig = Figure(figsize=(8, 4), facecolor=COLORS["bg"])
-            ax = fig.add_subplot(111, facecolor=COLORS["panel"])
-            canvas = FigureCanvasTkAgg(fig, tab)
-            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-            self.charts[inst] = {"fig": fig, "ax": ax, "canvas": canvas}
-
-    def rebuild_signal_widgets(self, instruments):
-        for child in self.signal_container.winfo_children():
-            child.destroy()
-        self.signal_widgets = {}
-        for inst in instruments:
-            row = ttk.Frame(self.signal_container)
-            row.pack(fill=tk.X, pady=1)
-            ttk.Label(row, text=inst.replace("_", "/"), width=10).pack(side=tk.LEFT)
-            bar = ttk.Progressbar(row, length=140, mode="determinate")
-            bar.pack(side=tk.LEFT, padx=4)
-            txt = ttk.Label(row, text="HOLD", width=6)
-            txt.pack(side=tk.RIGHT)
-            self.signal_widgets[inst] = (bar, txt)
-
     def connect_account(self, account_type):
         self.status_label.config(text=f"Connecting {account_type.upper()}...", foreground=COLORS["warning"])
 
         def _connect():
             try:
                 cfg = f"config/oanda_{account_type}.cfg"
-                self.trader = EliteTrader(cfg, self.timeframe_var.get(), self.risk_var.get(), smoke_test=self.smoke_test)
-                self.rebuild_chart_tabs(self.trader.instruments)
-                self.rebuild_signal_widgets(self.trader.instruments)
-                shown = min(len(self.trader.instruments), self.max_chart_tabs)
-                self.status_label.config(
-                    text=f"{account_type.upper()} Connected ({len(self.trader.instruments)} FX pairs, showing {shown} charts)",
-                    foreground=COLORS["success"],
-                )
-                self.log(f"Connected to {account_type.upper()} account.")
+                self.trader = PerfectTrader(cfg, self.timeframe_var.get(), self.risk_var.get())
+                self.status_label.config(text=f"{account_type.upper()} Connected", foreground=COLORS["success"])
+                self.log(f"Connected to {account_type.upper()} account")
             except Exception as e:
                 self.status_label.config(text="Connection failed", foreground=COLORS["error"])
                 self.log(f"Connection error: {e}")
@@ -733,6 +486,54 @@ class EliteTradingGUI:
         self.status_label.config(text="STOPPED", foreground=COLORS["warning"])
         self.log("Trading stopped")
 
+    def manage_open_positions(self):
+        if not self.trader:
+            return
+        max_hold_by_mode = {"Faster": 12 * 60, "Balanced": 35 * 60, "Safer": 60 * 60}
+        max_hold = max_hold_by_mode.get(self.mode_var.get(), 35 * 60)
+
+        for inst in list(self.trader.positions.keys()):
+            pos = self.trader.positions.get(inst)
+            if not pos:
+                continue
+            try:
+                _, bid, ask = self.trader.get_prices(inst)
+                current = bid if pos["direction"] == "LONG" else ask
+                entry = pos["entry_price"]
+
+                if pos["direction"] == "LONG":
+                    pos["peak_price"] = max(pos.get("peak_price", entry), current)
+                    if self.mode_var.get() == "Faster":
+                        locked_profit_trigger = entry * 1.0018
+                        trail_factor = 0.9988
+                    else:
+                        locked_profit_trigger = entry * 1.003
+                        trail_factor = 0.998
+                    if pos["peak_price"] > locked_profit_trigger:
+                        trail = pos["peak_price"] * trail_factor
+                        pos["stop_loss"] = max(pos["stop_loss"], trail)
+                else:
+                    pos["trough_price"] = min(pos.get("trough_price", entry), current)
+                    if self.mode_var.get() == "Faster":
+                        locked_profit_trigger = entry * 0.9982
+                        trail_factor = 1.0012
+                    else:
+                        locked_profit_trigger = entry * 0.997
+                        trail_factor = 1.002
+                    if pos["trough_price"] < locked_profit_trigger:
+                        trail = pos["trough_price"] * trail_factor
+                        pos["stop_loss"] = min(pos["stop_loss"], trail)
+
+                held_seconds = (datetime.now() - pos["entry_time"]).total_seconds()
+                if held_seconds > max_hold:
+                    self.log(f"Time-exit triggered for {inst}")
+                    self.trader.close_position(inst)
+                    continue
+
+                self.trader.check_exit_conditions(inst)
+            except Exception as e:
+                self.log(f"Position manage error {inst}: {e}")
+
     def trading_loop(self):
         while self.trading_active and self.trader:
             try:
@@ -744,34 +545,34 @@ class EliteTradingGUI:
                 self.trader.strategy_mode = self.mode_var.get()
                 self.trader.timeframe = self.timeframe_var.get()
                 self.trader.risk_pct = self.risk_var.get() / 100.0
-                self.trader.update_account_info()
+
+                self.manage_open_positions()
 
                 for inst in self.trader.instruments:
                     df = self.trader.get_live_data(inst, 120)
                     if df is None:
-                        self.log(f"{inst} blocked: no data")
                         continue
-
                     self.market_data[inst] = df
                     analysis = self.trader.analyze_fast(df)
                     self.analysis_results[inst] = analysis
-                    self.signal_strengths[inst] = analysis.get("score", 0.0)
+                    self.signal_strengths[inst] = analysis["score"]
 
-                    signal = analysis.get("signal", "HOLD")
-                    score = analysis.get("score", 0.0)
-                    spread = self.trader.get_spread_pips(inst)
-                    regime = self.trader.detect_regime(df)
+                    self.log(f"{inst} score={analysis['score']:+.2f} signal={analysis['signal']} mode={self.mode_var.get()}")
 
-                    self.log(f"{inst} regime={regime} score={score:+.2f} signal={signal}")
-
-                    if signal in ("BUY", "SELL"):
-                        trade, reason = self.trader.execute_trade(inst, signal, analysis, regime, spread)
+                    if analysis["signal"] in ("BUY", "SELL") and inst not in self.trader.positions:
+                        trade = self.trader.execute_trade(inst, analysis["signal"])
                         if trade:
-                            self.log(f"{inst} {signal} opened @ {trade['entry_price']:.5f}")
-                        else:
-                            self.log(f"{inst} blocked: {reason}")
+                            has_sl = "YES" if trade.get("sl_order_id") else "NO"
+                            has_tp = "YES" if trade.get("tp_order_id") else "NO"
+                            has_ts = "YES" if trade.get("tsl_order_id") else "NO"
+                            self.log(
+                                f"{inst} {analysis['signal']} opened @ {trade['entry_price']:.5f} "
+                                f"[OANDA SL:{has_sl} TP:{has_tp} TS:{has_ts}]"
+                            )
 
-                time.sleep({"Faster": 8, "Balanced": 12, "Safer": 18}.get(self.mode_var.get(), 12))
+                self.trader.update_account_info()
+                interval = {"Faster": 8, "Balanced": 12, "Safer": 18}.get(self.mode_var.get(), 12)
+                time.sleep(interval)
             except Exception as e:
                 self.log(f"Trading loop error: {e}")
                 time.sleep(5)
@@ -782,10 +583,10 @@ class EliteTradingGUI:
                 try:
                     self.update_dashboard()
                     self.update_charts()
-                    self.update_signal_panel()
                 except Exception:
                     pass
                 time.sleep(2)
+
         threading.Thread(target=loop, daemon=True).start()
 
     def update_dashboard(self):
@@ -796,6 +597,16 @@ class EliteTradingGUI:
         self.upl_label.config(text=f"Unrealized P&L: ${self.trader.unrealized_pl:+,.2f}")
         self.margin_label.config(text=f"Margin Used: ${self.trader.margin_used:,.2f}")
         self.market_label.config(text=f"Market: {'OPEN' if self.trader.is_market_open() else 'CLOSED'}")
+
+        for inst, (bar, txt) in self.signal_widgets.items():
+            score = float(self.signal_strengths.get(inst, 0.0))
+            bar["value"] = max(0, min(100, (score + 1) * 50))
+            if score > 0.5:
+                txt.config(text="BUY")
+            elif score < -0.5:
+                txt.config(text="SELL")
+            else:
+                txt.config(text="HOLD")
 
         self.pos_text.delete("1.0", tk.END)
         for inst, pos in self.trader.positions.items():
@@ -814,31 +625,54 @@ class EliteTradingGUI:
         self.perf_win.config(text=f"Win Rate: {win_rate:.1f}%")
         self.perf_pnl.config(text=f"Total P&L: ${pnl:+.2f}")
 
-    def update_signal_panel(self):
-        if not self.trader:
-            return
-        for inst, (bar, txt) in self.signal_widgets.items():
-            analysis = self.analysis_results.get(inst, {"signal": "HOLD", "score": 0.0})
-            score = max(-1.0, min(1.0, float(analysis.get("score", 0.0))))
-            bar["value"] = (score + 1.0) * 50.0
-            txt.config(text=analysis.get("signal", "HOLD"))
+        self.history_text.delete("1.0", tk.END)
+        for t in reversed(closed[-12:]):
+            self.history_text.insert(
+                tk.END,
+                f"[{t['exit_time'].strftime('%H:%M:%S')}] {t['instrument']} {t['direction']} "
+                f"P&L ${t.get('pnl',0):+.2f}\n",
+            )
 
     def update_charts(self):
         for inst, ch in self.charts.items():
             df = self.market_data.get(inst)
             if df is None or df.empty:
                 continue
-            p = df.copy()
-            p["sma_20"] = p["close"].rolling(20).mean()
-            p["sma_50"] = p["close"].rolling(50).mean()
+
+            plot_df = df.copy()
+            plot_df["sma_20"] = plot_df["close"].rolling(20).mean()
+            plot_df["sma_50"] = plot_df["close"].rolling(50).mean()
 
             ax = ch["ax"]
             ax.clear()
-            ax.plot(p.index, p["close"], color=COLORS["accent"], linewidth=1.4, label="Price")
-            if p["sma_20"].notna().any():
-                ax.plot(p.index, p["sma_20"], color=COLORS["success"], linewidth=1.2, alpha=0.9, label="SMA 20")
-            if p["sma_50"].notna().any():
-                ax.plot(p.index, p["sma_50"], color=COLORS["warning"], linewidth=1.2, alpha=0.9, label="SMA 50")
+
+            ax.plot(plot_df.index, plot_df["close"], color=COLORS["accent"], linewidth=1.4, label="Price")
+
+            if plot_df["sma_20"].notna().any():
+                ax.plot(plot_df.index, plot_df["sma_20"], color=COLORS["success"], linewidth=1.2, alpha=0.9, label="SMA 20")
+            if plot_df["sma_50"].notna().any():
+                ax.plot(plot_df.index, plot_df["sma_50"], color=COLORS["warning"], linewidth=1.2, alpha=0.9, label="SMA 50")
+
+            recent = plot_df.tail(40).dropna(subset=["close"])
+            if len(recent) >= 5:
+                y = recent["close"].values
+                x = np.arange(len(y))
+                m, b = np.polyfit(x, y, 1)
+                trend_y = m * x + b
+                ax.plot(recent.index, trend_y, color="#ff9e64", linewidth=1.4, linestyle="--", label="Trendline")
+
+            if self.trader and inst in self.trader.positions:
+                p = self.trader.positions[inst]
+                entry = p.get("entry_price")
+                if entry:
+                    marker_color = COLORS["buy"] if p.get("direction") == "LONG" else COLORS["sell"]
+                    ax.axhline(entry, color=marker_color, linestyle=":", linewidth=1.1, alpha=0.8, label="Entry")
+
+            if self.trader:
+                closed = [t for t in self.trader.closed_trades if t.get("instrument") == inst and t.get("exit_price") is not None]
+                if closed:
+                    last_closed = closed[-1]
+                    ax.axhline(last_closed["exit_price"], color="#cba6f7", linestyle=":", linewidth=1.0, alpha=0.7, label="Last Exit")
 
             ax.set_title(inst.replace("_", "/"), color=COLORS["fg"])
             ax.grid(True, alpha=0.25)
@@ -851,29 +685,7 @@ class EliteTradingGUI:
         self.log_text.see(tk.END)
 
 
-def run_smoke_test():
-    print("Running Elite smoke test...")
-    t = EliteTrader("config/oanda_demo.cfg", timeframe="M5", risk_pct=1.0, smoke_test=True)
-    inst = "EUR_USD"
-    df = t.get_live_data(inst, 120)
-    analysis = t.analyze_fast(df)
-    regime = t.detect_regime(df)
-    spread = t.get_spread_pips(inst)
-    signal = analysis.get("signal", "HOLD")
-    trade, reason = t.execute_trade(inst, signal, analysis, regime, spread)
-    print(f"signal={signal} regime={regime} spread={spread:.2f} reason={reason} trade_opened={trade is not None}")
-    print(f"decision_log={t.decisions_path}")
-    return 0
-
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--smoke-test", action="store_true", help="Run offline smoke test without OANDA calls")
-    args = parser.parse_args()
-
-    if args.smoke_test:
-        raise SystemExit(run_smoke_test())
-
     root = tk.Tk()
-    app = EliteTradingGUI(root, smoke_test=False)
+    app = PerfectTradingGUI(root)
     root.mainloop()

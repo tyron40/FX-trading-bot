@@ -16,4 +16,7 @@
 - [ ] Phase-1 hardening: real margin guard with margin_rate
 - [ ] Phase-1 hardening: proposal-based validation pipeline wired to execution
 - [ ] Minimal sanity: compile + smoke test
+- [ ] Refactor Elite chart UI to dropdown selector (single chart, no stretched pair names)
+- [ ] Keep trading on all available FX pairs and verify trade display across all pairs
+- [ ] Run smoke + launch verification after UI refactor
 - [ ] Commit and push to main
