@@ -105,6 +105,16 @@ class EliteTrader(tpqoa):
         self.spread_limits = {
             "EUR_USD": 1.5, "USD_JPY": 1.8, "GBP_USD": 2.0, "AUD_USD": 1.8, "USD_CHF": 2.0
         }
+        # Phase-1/2 portfolio safety state. Values are intentionally conservative;
+        # users can tune them after validating on an OANDA practice account.
+        self.instrument_meta: Dict[str, InstrumentMeta] = {}
+        self.max_open_positions = 5
+        self.max_currency_positions = 2
+        self.margin_buffer = 0.50
+        self.max_daily_drawdown = 0.05
+        self.max_peak_drawdown = 0.10
+        self.session_start_nav = self.nav
+        self.peak_nav = self.nav
 
         self.log_dir = "logs"
         self.decisions_path = os.path.join(self.log_dir, "trade_decisions.csv")
@@ -161,6 +171,9 @@ class EliteTrader(tpqoa):
             self.unrealized_pl = float(summary.get("unrealizedPL", 0.0))
             self.margin_used = float(summary.get("marginUsed", 0.0))
             self.margin_available = float(summary.get("marginAvailable", self.balance))
+            if self.session_start_nav <= 0:
+                self.session_start_nav = self.nav
+            self.peak_nav = max(self.peak_nav, self.nav)
             return True
         except Exception as e:
             print(f"Could not get account info: {e}")
@@ -179,6 +192,26 @@ class EliteTrader(tpqoa):
                     typ = str(getattr(ins, "type", "")).upper()
                 if "_" in name and ("CURRENCY" in typ or typ == ""):
                     fx.append(name)
+                    base, quote = name.split("_", 1)
+                    try:
+                        # tpqoa exposes OANDA instrument rows as tuples. Keep safe
+                        # defaults for older tpqoa versions with shorter rows.
+                        display_precision = int(ins[3]) if isinstance(ins, (list, tuple)) and len(ins) > 3 else (3 if "JPY" in name else 5)
+                        pip_location = int(ins[4]) if isinstance(ins, (list, tuple)) and len(ins) > 4 else (-2 if quote == "JPY" else -4)
+                        minimum_trade_size = int(float(ins[6])) if isinstance(ins, (list, tuple)) and len(ins) > 6 else 1
+                        margin_rate = float(ins[11]) if isinstance(ins, (list, tuple)) and len(ins) > 11 else 0.05
+                    except (TypeError, ValueError, IndexError):
+                        display_precision = 3 if quote == "JPY" else 5
+                        pip_location = -2 if quote == "JPY" else -4
+                        minimum_trade_size = 1
+                        margin_rate = 0.05
+                    self.instrument_meta[name] = InstrumentMeta(
+                        name=name, base=base, quote=quote,
+                        pip_location=pip_location,
+                        display_precision=display_precision,
+                        margin_rate=margin_rate,
+                        minimum_trade_size=minimum_trade_size,
+                    )
             fx = sorted(set(fx))
             if fx:
                 self.instruments = fx
@@ -346,21 +379,80 @@ class EliteTrader(tpqoa):
             "reason": "ok",
         }
 
-    def calculate_position_size(self, entry_price, stop_price, conversion_rate=1.0):
+    def _meta(self, instrument):
+        meta = self.instrument_meta.get(instrument)
+        if meta:
+            return meta
+        base, quote = instrument.split("_", 1)
+        return InstrumentMeta(
+            name=instrument, base=base, quote=quote,
+            pip_location=-2 if quote == "JPY" else -4,
+            display_precision=3 if quote == "JPY" else 5,
+            margin_rate=0.05, minimum_trade_size=1,
+        )
+
+    def conversion_to_home(self, currency):
+        """Return a conservative currency->account-home conversion factor."""
+        if currency == self.currency:
+            return 1.0
+        if self.smoke_test:
+            return 1.0
+        direct = f"{currency}_{self.currency}"
+        inverse = f"{self.currency}_{currency}"
+        try:
+            if direct in self.instruments:
+                _, bid, _ = self.get_prices(direct)
+                return max(float(bid), 1e-8)
+            if inverse in self.instruments:
+                _, _, ask = self.get_prices(inverse)
+                return 1.0 / max(float(ask), 1e-8)
+        except Exception:
+            pass
+        # Do not guess conversion for an unsupported cross. Reject sizing instead.
+        return 0.0
+
+    def calculate_position_size(self, instrument, entry_price, stop_price):
+        meta = self._meta(instrument)
+        quote_to_home = self.conversion_to_home(meta.quote)
+        if quote_to_home <= 0:
+            return 0
         nav_base = self.nav if self.nav > 0 else self.balance
         risk_amount = nav_base * self.risk_pct
-        loss_per_unit = abs(entry_price - stop_price) * max(conversion_rate, 1e-8)
+        loss_per_unit = abs(entry_price - stop_price) * quote_to_home
         if loss_per_unit <= 0:
             return 0
         units = int(risk_amount / loss_per_unit)
-        return max(1, units)
+        return max(meta.minimum_trade_size, units)
+
+    def estimate_margin(self, instrument, units, entry_price):
+        meta = self._meta(instrument)
+        base_to_home = self.conversion_to_home(meta.base)
+        if base_to_home <= 0:
+            return float("inf")
+        position_value_home = abs(units) * base_to_home
+        return position_value_home * max(meta.margin_rate, 0.0)
+
+    def portfolio_guard(self, instrument):
+        if len(self.positions) >= self.max_open_positions:
+            return False, "max_open_positions"
+        base, quote = instrument.split("_", 1)
+        for currency in (base, quote):
+            exposed = sum(currency in p.split("_", 1) for p in self.positions)
+            if exposed >= self.max_currency_positions:
+                return False, f"currency_exposure_{currency}"
+        nav_base = self.nav if self.nav > 0 else self.balance
+        if self.session_start_nav > 0 and nav_base <= self.session_start_nav * (1.0 - self.max_daily_drawdown):
+            return False, "daily_drawdown_kill_switch"
+        if self.peak_nav > 0 and nav_base <= self.peak_nav * (1.0 - self.max_peak_drawdown):
+            return False, "peak_drawdown_kill_switch"
+        return True, "ok"
 
     def get_spread_pips(self, instrument):
         if self.smoke_test:
             return 0.8
         try:
             _, bid, ask = self.get_prices(instrument)
-            pip_size = 0.01 if "JPY" in instrument else 0.0001
+            pip_size = 10 ** self._meta(instrument).pip_location
             return (ask - bid) / pip_size
         except Exception:
             return 9999.0
@@ -382,6 +474,10 @@ class EliteTrader(tpqoa):
 
         if instrument in self.positions:
             return False, "already_in_position"
+
+        portfolio_ok, portfolio_reason = self.portfolio_guard(instrument)
+        if not portfolio_ok:
+            return False, portfolio_reason
 
         if self.is_rollover_window():
             return False, "rollover_window"
@@ -432,26 +528,43 @@ class EliteTrader(tpqoa):
                 take_profit = entry * (1 - tp_pct)
                 signed = -1
 
-            units = self.calculate_position_size(entry, stop_loss)
+            units = self.calculate_position_size(instrument, entry, stop_loss)
             if units <= 0:
-                reason = "invalid_units"
+                reason = "invalid_units_or_conversion"
                 self._log_decision(self._decision_row(
                     instrument, signal, False, reason, regime, spread_pips, score, entry, stop_loss, take_profit, units
                 ))
                 return None, reason
 
             nav_base = self.nav if self.nav > 0 else self.balance
-            estimated_loss = abs(entry - stop_loss) * units
+            meta = self._meta(instrument)
+            quote_to_home = self.conversion_to_home(meta.quote)
+            estimated_loss = abs(entry - stop_loss) * units * quote_to_home
             allowed_risk = nav_base * self.risk_pct
-            if estimated_loss > allowed_risk:
+            if estimated_loss > allowed_risk * 1.01:
                 reason = "risk_exceeded"
                 self._log_decision(self._decision_row(
                     instrument, signal, False, reason, regime, spread_pips, score, entry, stop_loss, take_profit, units
                 ))
                 return None, reason
 
-            if self.margin_available <= 0:
-                reason = "no_margin_available"
+            required_margin = self.estimate_margin(instrument, units, entry)
+            if self.margin_available <= 0 or required_margin > self.margin_available * self.margin_buffer:
+                reason = "insufficient_margin_buffer"
+                self._log_decision(self._decision_row(
+                    instrument, signal, False, reason, regime, spread_pips, score, entry, stop_loss, take_profit, units
+                ))
+                return None, reason
+
+            proposal = OrderProposal(
+                instrument=instrument, side=signal, entry=entry,
+                stop_loss=stop_loss, take_profit=take_profit, units=units,
+                risk_amount=allowed_risk, estimated_loss=estimated_loss,
+                required_margin=required_margin, spread_pips=spread_pips,
+                regime=regime,
+            )
+            if proposal.take_profit == proposal.entry or proposal.stop_loss == proposal.entry:
+                reason = "invalid_proposal_prices"
                 self._log_decision(self._decision_row(
                     instrument, signal, False, reason, regime, spread_pips, score, entry, stop_loss, take_profit, units
                 ))
